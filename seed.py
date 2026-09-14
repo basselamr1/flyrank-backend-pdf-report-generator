@@ -35,6 +35,7 @@ def random_date_last_30_days():
 def seed():
 
     conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS orders 

@@ -10,6 +10,7 @@ async def health():
 
 def get_report_data():
     conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
     SELECT count(*) FROM orders 
@@ -25,7 +26,7 @@ def get_report_data():
 
     cursor.execute("""
     SELECT product,
-     COUNT(*), 
+     COUNT(*) AS order_count, 
      SUM(amount) AS revenue
     FROM orders 
     GROUP BY product 
@@ -33,7 +34,7 @@ def get_report_data():
     LIMIT 5
     """
     )
-    top_5_products = [row for row in cursor.fetchall()]
+    top_5_products = [dict(row) for row in cursor.fetchall()]
 
     cursor.execute("""
     SELECT 
@@ -45,11 +46,28 @@ def get_report_data():
     ORDER BY date
     """
     )
-    orders_per_day = [row for row in cursor.fetchall()]
+    orders_per_day = [dict(row) for row in cursor.fetchall()]
+
+    cursor.execute("""
+        SELECT
+            id,
+            customer,
+            product,
+            amount,
+            created_at
+        FROM orders
+        ORDER BY created_at DESC
+    """)
+
+    all_orders = [dict(row) for row in cursor.fetchall()]
+
+    conn.commit()
+    conn.close()
 
     return {
         "total_orders": num_of_orders,
         "total_revenue": revenue,
         "top_products": top_5_products,
         "orders_per_day": orders_per_day,
+        "all_orders": all_orders
     }
