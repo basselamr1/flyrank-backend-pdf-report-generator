@@ -135,4 +135,4 @@ curl.exe -X POST http://127.0.0.1:8000/reports `
 
 ## Generated PDF — Page 1
 
-![Page 1 of generated PDF](reports/9.pdf)
+![Page 1 of generated PDF](images/pdf_9_page_1.png)
