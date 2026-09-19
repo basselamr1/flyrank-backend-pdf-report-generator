@@ -1,40 +1,30 @@
-import asyncio
 from pathlib import Path
 
-from playwright.async_api import async_playwright
+from playwright.sync_api import sync_playwright
 
-from main import get_report_data
+from report_service import get_report_data
 from report_template import build_report_html
 
 
-async def generate_pdf():
+def generate_pdf(report_id: int) -> str:
     report = get_report_data()
-
     html = build_report_html(report)
 
-    output_path = Path("reports/test.pdf")
+    output_path = Path("reports") / f"{report_id}.pdf"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    async with async_playwright() as playwright:
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
 
-        browser = await playwright.chromium.launch(
-            headless=True
-        )
+        page.set_content(html)
 
-        page = await browser.new_page()
-
-        await page.set_content(html)
-
-        await page.pdf(
+        page.pdf(
             path=str(output_path),
             format="A4",
             print_background=True,
         )
 
-        await browser.close()
+        browser.close()
 
-    print(f"PDF generated: {output_path}")
-
-
-if __name__ == "__main__":
-    asyncio.run(generate_pdf())
+    return str(output_path)

@@ -1,73 +1,135 @@
-from fastapi import FastAPI
+from datetime import datetime,timezone
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, status
 import sqlite3
+from generate_pdf import generate_pdf
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 DATABASE = "report.db"
+
+def init_database():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+init_database()
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
-def get_report_data():
+
+@app.post('/reports', status_code = status.HTTP_201_CREATED)
+def create_report():
     conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("""
-    SELECT count(*) FROM orders 
-    """
-    )
-    num_of_orders = cursor.fetchone()[0]
+
+    created_at = datetime.now(timezone.utc).isoformat()
 
     cursor.execute("""
-    SELECT SUM(amount) FROM orders 
-    """
-    )
-    revenue = cursor.fetchone()[0]
+        INSERT INTO reports (path, created_at)
+        VALUES (?, ?)
+    """, ("", created_at))
+
+    report_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    pdf_path = generate_pdf(report_id)
+
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
     cursor.execute("""
-    SELECT product,
-     COUNT(*) AS order_count, 
-     SUM(amount) AS revenue
-    FROM orders 
-    GROUP BY product 
-    ORDER BY revenue DESC 
-    LIMIT 5
-    """
-    )
-    top_5_products = [dict(row) for row in cursor.fetchall()]
-
-    cursor.execute("""
-    SELECT 
-        DATE(created_at) AS date,
-        COUNT(*) AS order_count
-    FROM orders
-    WHERE DATE(created_at) >= DATE('now', '-6 days')
-    GROUP BY DATE(created_at)
-    ORDER BY date
-    """
-    )
-    orders_per_day = [dict(row) for row in cursor.fetchall()]
-
-    cursor.execute("""
-        SELECT
-            id,
-            customer,
-            product,
-            amount,
-            created_at
-        FROM orders
-        ORDER BY created_at DESC
-    """)
-
-    all_orders = [dict(row) for row in cursor.fetchall()]
+        UPDATE reports
+        SET path = ?
+        WHERE id = ?
+    """, (pdf_path, report_id))
 
     conn.commit()
     conn.close()
 
     return {
-        "total_orders": num_of_orders,
-        "total_revenue": revenue,
-        "top_products": top_5_products,
-        "orders_per_day": orders_per_day,
-        "all_orders": all_orders
+        "id": report_id,
+        "file": f"/reports/{report_id}/file",
     }
+
+@app.get("/reports/{report_id}")
+async def get_report(report_id: int):
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            path,
+            created_at
+        FROM reports
+        WHERE id = ?
+    """, (report_id,))
+
+    report = cursor.fetchone()
+
+    conn.close()
+
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Report not found",
+        )
+
+    return {
+        "id": report["id"],
+        "path": report["path"],
+        "created_at": report["created_at"],
+        "file": f"/reports/{report['id']}/file",
+    }
+
+@app.get("/reports/{report_id}/file")
+async def get_report_file(report_id: int):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT path
+        FROM reports
+        WHERE id = ?
+    """, (report_id,))
+
+    row = cursor.fetchone()
+
+    conn.close()
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Report not found",
+        )
+
+    pdf_path = Path(row[0])
+
+    if not pdf_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Report file not found",
+        )
+
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=f"report-{report_id}.pdf",
+    )
