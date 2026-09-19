@@ -1,12 +1,16 @@
 from datetime import datetime,timezone
+from pydantic import BaseModel
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, status
 import sqlite3
 from generate_pdf import generate_pdf
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 app = FastAPI()
 DATABASE = "report.db"
+
+class ReportRequest(BaseModel):
+    force: bool = False
 
 def init_database():
     conn = sqlite3.connect(DATABASE)
@@ -32,9 +36,48 @@ async def health():
 
 
 @app.post('/reports', status_code = status.HTTP_201_CREATED)
-def create_report():
+def create_report(request: ReportRequest | None = None):
+    if request is None:
+        request = ReportRequest()
+
     conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
+
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(
+    hour=0,
+    minute=0,
+    second=0,
+    microsecond=0,
+)
+    tomorrow_start = today_start.replace(day=today_start.day + 1)
+
+    if not request.force:
+        cursor.execute("""
+                SELECT id, path, created_at
+                FROM reports
+                WHERE created_at >= ?
+                AND created_at < ?
+                ORDER BY id DESC
+                LIMIT 1
+            """, (
+                today_start.isoformat(),
+                tomorrow_start.isoformat(),
+            ))
+
+        existing_report = cursor.fetchone()
+
+        if existing_report is not None:
+            conn.close()
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "id": existing_report["id"],
+                    "file": f"/reports/{existing_report['id']}/file",
+                },
+            )
 
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -62,10 +105,13 @@ def create_report():
     conn.commit()
     conn.close()
 
-    return {
+    return JSONResponse(
+        status_code = 201,
+        content = {
         "id": report_id,
         "file": f"/reports/{report_id}/file",
-    }
+        }
+    )
 
 @app.get("/reports/{report_id}")
 async def get_report(report_id: int):

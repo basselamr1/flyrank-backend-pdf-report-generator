@@ -1,0 +1,1 @@
+The duplicate-report check protects against repeated requests, such as double-clicks or accidental retries, generating multiple identical reports and files on the same day. In a real-world system, a missing idempotency check could cause a customer to receive the same email twice, resulting in duplicate processing and unnecessary costs.
